@@ -19,8 +19,8 @@ pub struct Config {
     pub jobs: JobsConfig,
 
     /// Plugin-specific configurations, keyed by plugin ID
-    /// This is populated dynamically based on loaded plugins
-    #[serde(default, flatten)]
+    /// This is under the [plugin-config] section in the config file
+    #[serde(default, rename = "plugin-config")]
     pub plugin_config: HashMap<String, JsonValue>,
 }
 

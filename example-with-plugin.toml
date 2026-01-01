@@ -1,0 +1,19 @@
+# Example configuration demonstrating plugin system
+
+# Load plugins
+plugins = ["target/plugins/example-plugin.wasm"]
+
+[server]
+port = 3000
+host = "127.0.0.1"
+
+# Job storage
+[jobs]
+storage_dir = "./jobs"
+max_size_bytes = 104857600
+
+# Plugin-specific configurations
+[plugin-config."com.example.demo"]
+enabled = true
+message = "Hello from plugin configuration!"
+interval_seconds = 45
