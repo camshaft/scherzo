@@ -1,0 +1,172 @@
+---
+source: target/debug/build/scherzo-gcode-dc04744a29280e4d/out/generated_tests.rs
+expression: snapshot
+---
+[
+  {
+    "kind": {
+      "kind": "Comment",
+      "value": "start of file"
+    },
+    "line": 1,
+    "column": 1
+  },
+  {
+    "kind": {
+      "kind": "Newline"
+    },
+    "line": 1,
+    "column": 16
+  },
+  {
+    "kind": {
+      "kind": "Comment",
+      "value": "preheat"
+    },
+    "line": 2,
+    "column": 1
+  },
+  {
+    "kind": {
+      "kind": "Newline"
+    },
+    "line": 2,
+    "column": 10
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "M",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 117
+          }
+        }
+      }
+    },
+    "line": 3,
+    "column": 1
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": null,
+        "value": {
+          "type": "Text",
+          "value": "Hello World"
+        }
+      }
+    },
+    "line": 3,
+    "column": 6
+  },
+  {
+    "kind": {
+      "kind": "Newline"
+    },
+    "line": 3,
+    "column": 19
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "G",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 28
+          }
+        }
+      }
+    },
+    "line": 4,
+    "column": 1
+  },
+  {
+    "kind": {
+      "kind": "Comment",
+      "value": "home all axes"
+    },
+    "line": 4,
+    "column": 5
+  },
+  {
+    "kind": {
+      "kind": "Newline"
+    },
+    "line": 4,
+    "column": 20
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "G",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 1
+          }
+        }
+      }
+    },
+    "line": 5,
+    "column": 1
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "X",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 5
+          }
+        }
+      }
+    },
+    "line": 5,
+    "column": 4
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "Y",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 5
+          }
+        }
+      }
+    },
+    "line": 5,
+    "column": 7
+  },
+  {
+    "kind": {
+      "kind": "Comment",
+      "value": "move small"
+    },
+    "line": 5,
+    "column": 10
+  },
+  {
+    "kind": {
+      "kind": "Newline"
+    },
+    "line": 5,
+    "column": 22
+  }
+]

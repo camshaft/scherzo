@@ -1,0 +1,107 @@
+---
+source: target/debug/build/scherzo-gcode-dc04744a29280e4d/out/generated_tests.rs
+expression: snapshot
+---
+[
+  {
+    "line": 1,
+    "raw": "(start of file)",
+    "words": [],
+    "comment": "start of file",
+    "checksum": null
+  },
+  {
+    "line": 2,
+    "raw": "; preheat",
+    "words": [],
+    "comment": "preheat",
+    "checksum": null
+  },
+  {
+    "line": 3,
+    "raw": "M117 \"Hello World\"",
+    "words": [
+      {
+        "letter": "M",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 117
+          }
+        }
+      },
+      {
+        "letter": null,
+        "name": null,
+        "value": {
+          "type": "Text",
+          "value": "Hello World"
+        }
+      }
+    ],
+    "comment": null,
+    "checksum": null
+  },
+  {
+    "line": 4,
+    "raw": "G28 ; home all axes",
+    "words": [
+      {
+        "letter": "G",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 28
+          }
+        }
+      }
+    ],
+    "comment": "home all axes",
+    "checksum": null
+  },
+  {
+    "line": 5,
+    "raw": "G1 X5 Y5 ; move small",
+    "words": [
+      {
+        "letter": "G",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 1
+          }
+        }
+      },
+      {
+        "letter": "X",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 5
+          }
+        }
+      },
+      {
+        "letter": "Y",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 5
+          }
+        }
+      }
+    ],
+    "comment": "move small",
+    "checksum": null
+  }
+]

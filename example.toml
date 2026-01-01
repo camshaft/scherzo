@@ -1,0 +1,37 @@
+# Scherzo Configuration File
+#
+# This is the main configuration file for the Scherzo 3D printer control system.
+# JSON is also supported.
+
+# Server Configuration
+[server]
+# Port to bind the HTTP server to (default: 3000)
+port = 3000
+
+# Host address to bind to (default: "127.0.0.1")
+# Use "0.0.0.0" to listen on all network interfaces
+host = "127.0.0.1"
+
+# Optional: Basic authentication for API endpoints
+# To generate a password hash, you can use:
+#   echo -n "yourpassword" | scherzo password-hash
+# [server.auth]
+# username = "admin"
+# password_hash = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5GyYbF5NvnE6."
+
+# Boot Plugins
+# List of WebAssembly component files to load at startup
+# These plugins can extend the system functionality
+plugins = [
+    # "/path/to/plugin1.component.wasm",
+    # "/path/to/plugin2.component.wasm",
+]
+
+# Job Storage Configuration
+[jobs]
+# Directory where uploaded job files are stored (default: "./jobs")
+storage_dir = "./jobs"
+
+# Maximum size for uploaded job files in bytes (default: 100MB)
+# 100 MB = 104857600 bytes
+max_size_bytes = 104857600

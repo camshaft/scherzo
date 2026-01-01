@@ -1,0 +1,22 @@
+[package]
+name = "scherzo-compile"
+description = "Compile G-code jobs into WASM components with embedded WIT"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+scherzo-gcode = { path = "../scherzo-gcode" }
+heck.workspace = true
+wasm-encoder = { workspace = true, features = ["component-model"] }
+wit-encoder.workspace = true
+wit-parser.workspace = true
+wit-component.workspace = true
+ryu = "1"
+serde_json.workspace = true
+wasmparser.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

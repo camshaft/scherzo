@@ -1,0 +1,19 @@
+[package]
+name = "scherzo-gcode"
+description = "G-code tokenizer and parser for Scherzo"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+build = "build.rs"
+
+[lib]
+name = "scherzo_gcode"
+
+[dependencies]
+thiserror.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

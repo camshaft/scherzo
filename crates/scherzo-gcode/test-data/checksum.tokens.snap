@@ -1,0 +1,238 @@
+---
+source: target/debug/build/scherzo-gcode-dc04744a29280e4d/out/generated_tests.rs
+expression: snapshot
+---
+[
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "N",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 1
+          }
+        }
+      }
+    },
+    "line": 1,
+    "column": 1
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "M",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 110
+          }
+        }
+      }
+    },
+    "line": 1,
+    "column": 4
+  },
+  {
+    "kind": {
+      "kind": "Checksum",
+      "value": 2
+    },
+    "line": 1,
+    "column": 9
+  },
+  {
+    "kind": {
+      "kind": "Newline"
+    },
+    "line": 1,
+    "column": 11
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "N",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 2
+          }
+        }
+      }
+    },
+    "line": 2,
+    "column": 1
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "G",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 0
+          }
+        }
+      }
+    },
+    "line": 2,
+    "column": 4
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "X",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 0
+          }
+        }
+      }
+    },
+    "line": 2,
+    "column": 7
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "Y",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 0
+          }
+        }
+      }
+    },
+    "line": 2,
+    "column": 10
+  },
+  {
+    "kind": {
+      "kind": "Checksum",
+      "value": 71
+    },
+    "line": 2,
+    "column": 13
+  },
+  {
+    "kind": {
+      "kind": "Newline"
+    },
+    "line": 2,
+    "column": 16
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "N",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 3
+          }
+        }
+      }
+    },
+    "line": 3,
+    "column": 1
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "G",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 1
+          }
+        }
+      }
+    },
+    "line": 3,
+    "column": 4
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "X",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Float",
+            "value": 20.0
+          }
+        }
+      }
+    },
+    "line": 3,
+    "column": 7
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "Y",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Float",
+            "value": 10.0
+          }
+        }
+      }
+    },
+    "line": 3,
+    "column": 13
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "F",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 1500
+          }
+        }
+      }
+    },
+    "line": 3,
+    "column": 19
+  },
+  {
+    "kind": {
+      "kind": "Checksum",
+      "value": 35
+    },
+    "line": 3,
+    "column": 25
+  },
+  {
+    "kind": {
+      "kind": "Newline"
+    },
+    "line": 3,
+    "column": 28
+  }
+]

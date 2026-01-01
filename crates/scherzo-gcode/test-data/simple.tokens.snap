@@ -1,0 +1,188 @@
+---
+source: target/debug/build/scherzo-gcode-dc04744a29280e4d/out/generated_tests.rs
+expression: snapshot
+---
+[
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "G",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 0
+          }
+        }
+      }
+    },
+    "line": 1,
+    "column": 1
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "X",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 0
+          }
+        }
+      }
+    },
+    "line": 1,
+    "column": 4
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "Y",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 0
+          }
+        }
+      }
+    },
+    "line": 1,
+    "column": 7
+  },
+  {
+    "kind": {
+      "kind": "Newline"
+    },
+    "line": 1,
+    "column": 9
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "G",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 1
+          }
+        }
+      }
+    },
+    "line": 2,
+    "column": 1
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "X",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Float",
+            "value": 10.5
+          }
+        }
+      }
+    },
+    "line": 2,
+    "column": 4
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "Y",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Float",
+            "value": -3.2
+          }
+        }
+      }
+    },
+    "line": 2,
+    "column": 10
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "F",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 1500
+          }
+        }
+      }
+    },
+    "line": 2,
+    "column": 16
+  },
+  {
+    "kind": {
+      "kind": "Comment",
+      "value": "move"
+    },
+    "line": 2,
+    "column": 22
+  },
+  {
+    "kind": {
+      "kind": "Newline"
+    },
+    "line": 2,
+    "column": 28
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "M",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 104
+          }
+        }
+      }
+    },
+    "line": 3,
+    "column": 1
+  },
+  {
+    "kind": {
+      "kind": "Word",
+      "value": {
+        "letter": "S",
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 200
+          }
+        }
+      }
+    },
+    "line": 3,
+    "column": 6
+  },
+  {
+    "kind": {
+      "kind": "Newline"
+    },
+    "line": 3,
+    "column": 10
+  }
+]

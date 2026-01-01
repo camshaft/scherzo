@@ -1,0 +1,151 @@
+---
+source: target/debug/build/scherzo-gcode-dc04744a29280e4d/out/generated_tests.rs
+expression: snapshot
+---
+[
+  {
+    "line": 1,
+    "raw": "N1 M110 *2",
+    "words": [
+      {
+        "letter": "N",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 1
+          }
+        }
+      },
+      {
+        "letter": "M",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 110
+          }
+        }
+      }
+    ],
+    "comment": null,
+    "checksum": 2
+  },
+  {
+    "line": 2,
+    "raw": "N2 G0 X0 Y0 *71",
+    "words": [
+      {
+        "letter": "N",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 2
+          }
+        }
+      },
+      {
+        "letter": "G",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 0
+          }
+        }
+      },
+      {
+        "letter": "X",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 0
+          }
+        }
+      },
+      {
+        "letter": "Y",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 0
+          }
+        }
+      }
+    ],
+    "comment": null,
+    "checksum": 71
+  },
+  {
+    "line": 3,
+    "raw": "N3 G1 X20.0 Y10.0 F1500 *35",
+    "words": [
+      {
+        "letter": "N",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 3
+          }
+        }
+      },
+      {
+        "letter": "G",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 1
+          }
+        }
+      },
+      {
+        "letter": "X",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Float",
+            "value": 20.0
+          }
+        }
+      },
+      {
+        "letter": "Y",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Float",
+            "value": 10.0
+          }
+        }
+      },
+      {
+        "letter": "F",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 1500
+          }
+        }
+      }
+    ],
+    "comment": null,
+    "checksum": 35
+  }
+]

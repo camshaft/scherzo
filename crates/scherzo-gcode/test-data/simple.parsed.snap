@@ -1,0 +1,129 @@
+---
+source: target/debug/build/scherzo-gcode-dc04744a29280e4d/out/generated_tests.rs
+expression: snapshot
+---
+[
+  {
+    "line": 1,
+    "raw": "G0 X0 Y0",
+    "words": [
+      {
+        "letter": "G",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 0
+          }
+        }
+      },
+      {
+        "letter": "X",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 0
+          }
+        }
+      },
+      {
+        "letter": "Y",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 0
+          }
+        }
+      }
+    ],
+    "comment": null,
+    "checksum": null
+  },
+  {
+    "line": 2,
+    "raw": "G1 X10.5 Y-3.2 F1500 ; move",
+    "words": [
+      {
+        "letter": "G",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 1
+          }
+        }
+      },
+      {
+        "letter": "X",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Float",
+            "value": 10.5
+          }
+        }
+      },
+      {
+        "letter": "Y",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Float",
+            "value": -3.2
+          }
+        }
+      },
+      {
+        "letter": "F",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 1500
+          }
+        }
+      }
+    ],
+    "comment": "move",
+    "checksum": null
+  },
+  {
+    "line": 3,
+    "raw": "M104 S200",
+    "words": [
+      {
+        "letter": "M",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 104
+          }
+        }
+      },
+      {
+        "letter": "S",
+        "name": null,
+        "value": {
+          "type": "Number",
+          "value": {
+            "kind": "Int",
+            "value": 200
+          }
+        }
+      }
+    ],
+    "comment": null,
+    "checksum": null
+  }
+]
