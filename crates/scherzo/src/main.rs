@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 
 mod cli;
 mod config;
+mod plugin;
 mod server;
 
 fn main() -> Result<()> {
