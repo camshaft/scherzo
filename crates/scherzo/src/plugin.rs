@@ -570,4 +570,133 @@ mod tests {
         assert_eq!(plugins.len(), 1);
         assert!(plugins.contains_key("com.example.test"));
     }
+
+    #[test]
+    fn test_schema_merging() {
+        let registry = PluginRegistry::new();
+
+        // Register first plugin schema with "temp" field
+        let schema1 = Schema {
+            json_schema: r#"{
+                "type": "object",
+                "properties": {
+                    "temp": {"type": "number"},
+                    "speed": {"type": "number"}
+                },
+                "required": ["temp"]
+            }"#.to_string(),
+            description: Some("Plugin 1 schema".to_string()),
+        };
+        registry.register_config_schema("plugin1".to_string(), schema1).unwrap();
+
+        // Register second plugin schema with "pressure" field
+        let schema2 = Schema {
+            json_schema: r#"{
+                "type": "object",
+                "properties": {
+                    "pressure": {"type": "number"},
+                    "flow": {"type": "number"}
+                },
+                "required": ["pressure"]
+            }"#.to_string(),
+            description: Some("Plugin 2 schema".to_string()),
+        };
+        registry.register_config_schema("plugin2".to_string(), schema2).unwrap();
+
+        // Get merged schema
+        let merged = registry.get_merged_schema().unwrap();
+        let merged_value: serde_json::Value = serde_json::from_str(&merged.json_schema).unwrap();
+
+        // Check that all properties are merged
+        let props = merged_value["properties"].as_object().unwrap();
+        assert!(props.contains_key("temp"));
+        assert!(props.contains_key("speed"));
+        assert!(props.contains_key("pressure"));
+        assert!(props.contains_key("flow"));
+
+        // Check that required fields are merged
+        let required = merged_value["required"].as_array().unwrap();
+        assert_eq!(required.len(), 2);
+        assert!(required.contains(&serde_json::json!("temp")));
+        assert!(required.contains(&serde_json::json!("pressure")));
+    }
+
+    #[test]
+    fn test_schema_conflict_detection_same_field_compatible() {
+        let registry = PluginRegistry::new();
+
+        // Register first plugin with "temp" as number
+        let schema1 = Schema {
+            json_schema: r#"{
+                "type": "object",
+                "properties": {
+                    "temp": {"type": "number"}
+                }
+            }"#.to_string(),
+            description: Some("Plugin 1".to_string()),
+        };
+        registry.register_config_schema("plugin1".to_string(), schema1).unwrap();
+
+        // Register second plugin with same "temp" field as number - should work
+        let schema2 = Schema {
+            json_schema: r#"{
+                "type": "object",
+                "properties": {
+                    "temp": {"type": "number"}
+                }
+            }"#.to_string(),
+            description: Some("Plugin 2".to_string()),
+        };
+        let result = registry.register_config_schema("plugin2".to_string(), schema2);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_schema_conflict_detection_incompatible_types() {
+        let registry = PluginRegistry::new();
+
+        // Register first plugin with "temp" as number
+        let schema1 = Schema {
+            json_schema: r#"{
+                "type": "object",
+                "properties": {
+                    "temp": {"type": "number"}
+                }
+            }"#.to_string(),
+            description: Some("Plugin 1".to_string()),
+        };
+        registry.register_config_schema("plugin1".to_string(), schema1).unwrap();
+
+        // Try to register second plugin with "temp" as string - should fail
+        let schema2 = Schema {
+            json_schema: r#"{
+                "type": "object",
+                "properties": {
+                    "temp": {"type": "string"}
+                }
+            }"#.to_string(),
+            description: Some("Plugin 2".to_string()),
+        };
+        let result = registry.register_config_schema("plugin2".to_string(), schema2);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("incompatible types"));
+    }
+
+    #[test]
+    fn test_schema_duplicate_plugin_registration() {
+        let registry = PluginRegistry::new();
+
+        let schema = Schema {
+            json_schema: r#"{"type": "object", "properties": {}}"#.to_string(),
+            description: Some("Test".to_string()),
+        };
+
+        // First registration should succeed
+        assert!(registry.register_config_schema("plugin1".to_string(), schema.clone()).is_ok());
+
+        // Second registration with same plugin ID should fail
+        let result = registry.register_config_schema("plugin1".to_string(), schema);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("already registered"));
+    }
 }
