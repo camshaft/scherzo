@@ -42,7 +42,7 @@ tower = "0.5"
 tower-http = "0.6"
 axum = "0.8"
 base64 = "0.22"
-bcrypt = "0.16"
+bcrypt = "0.17"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 tracing = "0.1"
