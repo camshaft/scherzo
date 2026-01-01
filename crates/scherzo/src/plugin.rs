@@ -9,7 +9,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 use wasmtime::{
-    Engine, Store,
+    Engine,
     component::{Component, Linker, ResourceTable},
 };
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiView};
@@ -23,7 +23,7 @@ wasmtime::component::bindgen!({
 });
 
 // Re-export types from the generated bindings for the host side
-pub use scherzo::plugin::types::{
+pub use self::scherzo::plugin::types::{
     CommandHandler as WitCommandHandler, FieldDef as WitFieldDef, FieldType as WitFieldType,
     Schema as WitSchema,
 };
@@ -238,7 +238,7 @@ impl WasiView for PluginState {
 }
 
 // Implement the host side of the registry interface
-impl scherzo::plugin::registry::Host for PluginState {
+impl self::scherzo::plugin::registry::Host for PluginState {
     fn register_config_schema(
         &mut self,
         namespace: String,
@@ -266,7 +266,7 @@ impl scherzo::plugin::registry::Host for PluginState {
 }
 
 // Implement empty types Host trait if needed
-impl scherzo::plugin::types::Host for PluginState {}
+impl self::scherzo::plugin::types::Host for PluginState {}
 
 /// Plugin manager for loading and managing plugins
 pub struct PluginManager {
