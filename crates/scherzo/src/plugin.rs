@@ -3,6 +3,7 @@
 /// This module handles loading WebAssembly plugins, managing their lifecycle,
 /// and maintaining registries for config schemas and command handlers.
 use anyhow::{Context, Result, bail};
+use jsonschema::Validator;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -10,7 +11,7 @@ use std::{
 };
 use wasmtime::{
     Engine, Store,
-    component::{Component, Linker, ResourceTable},
+    component::{Component, Linker, Resource, ResourceTable},
 };
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiView};
 
@@ -26,6 +27,117 @@ pub use scherzo::plugin::types::{
     Schema as WitSchema,
 };
 
+/// Schema conflict error tracking which plugins have conflicting definitions
+#[derive(Debug, Clone)]
+pub struct SchemaConflict {
+    pub field_path: String,
+    pub plugin_a: String,
+    pub plugin_b: String,
+    pub conflict_type: String,
+    pub details: String,
+}
+
+impl std::fmt::Display for SchemaConflict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Field '{}': {} between plugins '{}' and '{}' - {}",
+            self.field_path, self.conflict_type, self.plugin_a, self.plugin_b, self.details
+        )
+    }
+}
+
+/// Recursively merge a plugin schema into the base schema
+/// Returns a list of conflicts found during merging
+fn merge_schema(
+    base: &mut serde_json::Value,
+    plugin_schema: &serde_json::Value,
+    plugin_id: &str,
+    field_attributions: &mut HashMap<String, Vec<String>>,
+    path: &str,
+) -> Vec<SchemaConflict> {
+    let mut conflicts = Vec::new();
+
+    // Handle object type schemas
+    if let (Some(base_obj), Some(plugin_obj)) =
+        (base.as_object_mut(), plugin_schema.as_object())
+    {
+        // Merge properties recursively
+        if let Some(plugin_props) = plugin_obj.get("properties").and_then(|p| p.as_object()) {
+            let base_props = base_obj
+                .entry("properties")
+                .or_insert_with(|| serde_json::json!({}))
+                .as_object_mut()
+                .unwrap();
+
+            for (prop_name, prop_value) in plugin_props {
+                let field_path = if path.is_empty() {
+                    prop_name.clone()
+                } else {
+                    format!("{}.{}", path, prop_name)
+                };
+
+                // Track which plugins define this field
+                field_attributions
+                    .entry(field_path.clone())
+                    .or_default()
+                    .push(plugin_id.to_string());
+
+                if let Some(existing_prop) = base_props.get_mut(prop_name) {
+                    // Field exists - check for conflicts
+                    if let (Some(existing_type), Some(new_type)) =
+                        (existing_prop.get("type"), prop_value.get("type"))
+                    {
+                        if existing_type != new_type {
+                            conflicts.push(SchemaConflict {
+                                field_path: field_path.clone(),
+                                plugin_a: field_attributions[&field_path][0].clone(),
+                                plugin_b: plugin_id.to_string(),
+                                conflict_type: "Type mismatch".to_string(),
+                                details: format!("{:?} vs {:?}", existing_type, new_type),
+                            });
+                        }
+                    }
+
+                    // Recursively merge nested objects
+                    if prop_value.is_object() {
+                        let nested_conflicts = merge_schema(
+                            existing_prop,
+                            prop_value,
+                            plugin_id,
+                            field_attributions,
+                            &field_path,
+                        );
+                        conflicts.extend(nested_conflicts);
+                    }
+                } else {
+                    // New field - add it
+                    base_props.insert(prop_name.clone(), prop_value.clone());
+                }
+            }
+        }
+
+        // Merge required fields
+        if let Some(plugin_required) = plugin_obj.get("required").and_then(|r| r.as_array()) {
+            let base_required = base_obj
+                .entry("required")
+                .or_insert_with(|| serde_json::json!([]))
+                .as_array_mut()
+                .unwrap();
+
+            for req_field in plugin_required {
+                if let Some(field_name) = req_field.as_str() {
+                    if !base_required.contains(req_field) {
+                        base_required.push(req_field.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    conflicts
+}
+
 /// Plugin metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginInfo {
@@ -36,19 +148,36 @@ pub struct PluginInfo {
 }
 
 /// Schema definition for configuration or command parameters
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Schema {
-    /// JSON Schema as a string
-    pub json_schema: String,
+    /// JSON Schema as a parsed Value
+    pub schema: serde_json::Value,
     /// Human-readable description
     pub description: Option<String>,
 }
 
+impl Schema {
+    /// Parse a schema from a JSON string
+    pub fn from_json(json_schema: &str, description: Option<String>) -> Result<Self> {
+        let schema = serde_json::from_str(json_schema)
+            .context("Failed to parse schema as JSON")?;
+        Ok(Self { schema, description })
+    }
+
+    /// Get the schema as a JSON string
+    pub fn to_json_string(&self) -> Result<String> {
+        serde_json::to_string(&self.schema).context("Failed to serialize schema to JSON")
+    }
+}
+
 impl From<WitSchema> for Schema {
-    fn from(schema: WitSchema) -> Self {
+    fn from(wit_schema: WitSchema) -> Self {
+        // Parse the JSON schema string into a Value
+        let schema = serde_json::from_str(&wit_schema.json_schema)
+            .unwrap_or_else(|_| serde_json::json!({"type": "object", "properties": {}}));
         Self {
-            json_schema: schema.json_schema,
-            description: schema.description,
+            schema,
+            description: wit_schema.description,
         }
     }
 }
@@ -125,7 +254,8 @@ impl From<WitCommandHandler> for CommandHandler {
 /// Registry for plugin-provided schemas and handlers
 #[derive(Debug, Clone, Default)]
 pub struct PluginRegistry {
-    /// Registered config schemas by namespace
+    /// Registered config schemas by plugin ID (no namespacing)
+    /// All plugins contribute to a shared config space
     config_schemas: Arc<RwLock<HashMap<String, Schema>>>,
     /// Registered command handlers by handler ID
     command_handlers: Arc<RwLock<HashMap<u32, CommandHandler>>>,
@@ -134,6 +264,8 @@ pub struct PluginRegistry {
     next_handler_id: Arc<RwLock<u32>>,
     /// Loaded plugins by plugin ID
     plugins: Arc<RwLock<HashMap<String, PluginInfo>>>,
+    /// Merged configuration schema from all plugins
+    merged_schema: Arc<RwLock<Option<Schema>>>,
 }
 
 impl PluginRegistry {
@@ -141,18 +273,117 @@ impl PluginRegistry {
         Self::default()
     }
 
-    /// Register a configuration schema
-    #[allow(dead_code)] // Part of public plugin API, will be used by WIT bindings
-    pub fn register_config_schema(&self, namespace: String, schema: Schema) -> Result<()> {
+    /// Register a configuration schema from a plugin
+    /// Schemas are not namespaced - all plugins share the config space
+    /// This method checks for conflicts and merges schemas
+    pub fn register_config_schema(&self, plugin_id: String, schema: Schema) -> Result<()> {
         let mut schemas = self.config_schemas.write().unwrap();
-        if schemas.contains_key(&namespace) {
-            bail!(
-                "Config schema for namespace '{}' already registered",
-                namespace
-            );
+
+        // Check if this plugin already registered a schema
+        if schemas.contains_key(&plugin_id) {
+            bail!("Plugin '{}' already registered a config schema", plugin_id);
         }
-        schemas.insert(namespace, schema);
+
+        // Parse the new schema to detect conflicts with existing schemas
+        let new_schema_value: serde_json::Value = serde_json::from_str(&schema.json_schema)
+            .context("Failed to parse plugin config schema as JSON")?;
+
+        // Check for conflicts with existing schemas
+        for (existing_plugin_id, existing_schema) in schemas.iter() {
+            let existing_value: serde_json::Value =
+                serde_json::from_str(&existing_schema.json_schema)
+                    .context("Failed to parse existing schema as JSON")?;
+
+            // Detect schema conflicts
+            if let Err(e) = check_schema_compatibility(
+                &new_schema_value,
+                &existing_value,
+                existing_plugin_id,
+                &plugin_id,
+            ) {
+                bail!("Schema conflict detected: {}", e);
+            }
+        }
+
+        // Add the schema
+        schemas.insert(plugin_id, schema);
+
+        // Invalidate merged schema to trigger re-merge
+        *self.merged_schema.write().unwrap() = None;
+
         Ok(())
+    }
+
+    /// Get or build the merged configuration schema from all plugins
+    pub fn get_merged_schema(&self) -> Result<Schema> {
+        // Check if we have a cached merged schema
+        {
+            let merged = self.merged_schema.read().unwrap();
+            if let Some(schema) = &*merged {
+                return Ok(schema.clone());
+            }
+        }
+
+        // Build merged schema
+        let schemas = self.config_schemas.read().unwrap();
+
+        if schemas.is_empty() {
+            // No schemas registered, return empty object schema
+            return Ok(Schema {
+                json_schema: r#"{"type": "object", "properties": {}}"#.to_string(),
+                description: Some("Empty configuration (no plugins registered)".to_string()),
+            });
+        }
+
+        // Merge all schemas into one
+        let mut merged_properties = serde_json::Map::new();
+        let mut merged_required = Vec::new();
+
+        for schema in schemas.values() {
+            let schema_value: serde_json::Value = serde_json::from_str(&schema.json_schema)
+                .context("Failed to parse schema as JSON")?;
+
+            if let Some(obj) = schema_value.as_object() {
+                // Merge properties
+                if let Some(props) = obj.get("properties").and_then(|p| p.as_object()) {
+                    for (key, value) in props {
+                        merged_properties.insert(key.clone(), value.clone());
+                    }
+                }
+
+                // Merge required fields
+                if let Some(req) = obj.get("required").and_then(|r| r.as_array()) {
+                    for item in req {
+                        if let Some(field) = item.as_str()
+                            && !merged_required.contains(&field.to_string())
+                        {
+                            merged_required.push(field.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Build the merged schema object
+        let mut merged_obj = serde_json::Map::new();
+        merged_obj.insert("type".to_string(), serde_json::json!("object"));
+        merged_obj.insert(
+            "properties".to_string(),
+            serde_json::Value::Object(merged_properties),
+        );
+        if !merged_required.is_empty() {
+            merged_obj.insert("required".to_string(), serde_json::json!(merged_required));
+        }
+
+        let merged_schema = Schema {
+            json_schema: serde_json::to_string(&merged_obj)?,
+            description: Some("Merged configuration schema from all plugins".to_string()),
+        };
+
+        // Cache the merged schema
+        *self.merged_schema.write().unwrap() = Some(merged_schema.clone());
+
+        Ok(merged_schema)
     }
 
     /// Register a command handler
@@ -203,6 +434,49 @@ impl PluginRegistry {
     pub fn get_plugins(&self) -> HashMap<String, PluginInfo> {
         self.plugins.read().unwrap().clone()
     }
+
+    /// Validate configuration JSON against the merged schema
+    /// Returns Ok(()) if valid, or an error describing what's wrong
+    ///
+    /// Note: This is a basic validation that checks if the JSON parses and
+    /// contains required fields. For full JSON Schema validation, consider
+    /// adding the `jsonschema` crate in the future.
+    pub fn validate_config(&self, config_json: &str) -> Result<()> {
+        // Parse the config JSON
+        let config_value: serde_json::Value =
+            serde_json::from_str(config_json).context("Config is not valid JSON")?;
+
+        // Get the merged schema
+        let merged_schema = self.get_merged_schema()?;
+        let schema_value: serde_json::Value = serde_json::from_str(&merged_schema.json_schema)
+            .context("Failed to parse merged schema")?;
+
+        // Basic validation: check that config is an object
+        if !config_value.is_object() {
+            bail!("Config must be a JSON object");
+        }
+
+        // Check required fields if specified in schema
+        if let Some(required) = schema_value.get("required").and_then(|r| r.as_array()) {
+            let config_obj = config_value.as_object().unwrap();
+            for req_field in required {
+                if let Some(field_name) = req_field.as_str()
+                    && !config_obj.contains_key(field_name)
+                {
+                    bail!("Required field '{}' is missing from config", field_name);
+                }
+            }
+        }
+
+        // TODO: Add more comprehensive validation:
+        // - Type checking for each field
+        // - Range validation for numbers
+        // - Pattern validation for strings
+        // - Array item validation
+        // Consider using the `jsonschema` crate for full JSON Schema validation
+
+        Ok(())
+    }
 }
 
 /// State for plugin WASM instances
@@ -235,6 +509,10 @@ impl WasiView for PluginState {
     }
 }
 
+// TODO: Implement host-side registry interface when needed
+// For now, plugins don't need to call registry functions during loading
+// They only export lifecycle functions which the host calls
+
 /// Plugin manager for loading and managing plugins
 pub struct PluginManager {
     engine: Engine,
@@ -255,7 +533,14 @@ impl PluginManager {
     }
 
     /// Load a plugin from a WebAssembly component file
-    pub fn load_plugin(&mut self, path: &str, _config: &str) -> Result<PluginInfo> {
+    /// This implements the new plugin loading flow:
+    /// 1. Instantiate the plugin
+    /// 2. Call get-info to get plugin metadata
+    /// 3. Call get-config-schema to get the plugin's config schema
+    /// 4. Register the schema (with conflict detection)
+    /// 5. Validate and merge the config
+    /// 6. Call init with validated config to get a plugin instance resource
+    pub fn load_plugin(&mut self, path: &str, config_json: &str) -> Result<PluginInfo> {
         tracing::info!("Loading plugin from: {}", path);
 
         // Read the plugin file
@@ -274,24 +559,65 @@ impl PluginManager {
         let mut store = Store::new(&self.engine, state);
 
         // Instantiate the component
-        let _instance = linker
-            .instantiate(&mut store, &component)
+        let instance = Plugin::instantiate(&mut store, &component, &linker)
             .with_context(|| format!("Failed to instantiate plugin: {}", path))?;
 
-        // TODO: Call get-info to get plugin metadata
-        // TODO: Call init with the config
-        // For now, create placeholder info
+        // Call get-info to get plugin metadata
+        let lifecycle = instance.scherzo_plugin_lifecycle();
+        let wit_info = lifecycle
+            .call_get_info(&mut store)
+            .context("Failed to call get-info on plugin")?;
+
         let info = PluginInfo {
-            id: format!("plugin-{}", path),
-            name: path.to_string(),
-            version: "0.1.0".to_string(),
-            description: Some(format!("Plugin loaded from {}", path)),
+            id: wit_info.id.clone(),
+            name: wit_info.name,
+            version: wit_info.version,
+            description: wit_info.description,
         };
+
+        tracing::info!("Plugin info: {} v{}", info.name, info.version);
+
+        // Call get-config-schema to get the plugin's config schema
+        let wit_schema = lifecycle
+            .call_get_config_schema(&mut store)
+            .context("Failed to call get-config-schema on plugin")?;
+
+        let schema = Schema::from(wit_schema);
+        tracing::debug!("Plugin {} config schema: {}", info.id, schema.json_schema);
+
+        // Register the schema (this will check for conflicts)
+        self.registry
+            .register_config_schema(info.id.clone(), schema)
+            .with_context(|| format!("Failed to register config schema for plugin {}", info.id))?;
+
+        // Validate config against the merged schema
+        self.registry
+            .validate_config(config_json)
+            .with_context(|| format!("Config validation failed for plugin {}", info.id))?;
+
+        tracing::debug!("Config validated successfully for plugin {}", info.id);
+
+        // Call init with validated config to get plugin instance resource
+        let _plugin_instance = lifecycle
+            .call_init(&mut store, config_json)
+            .with_context(|| format!("Failed to initialize plugin {}", info.id))?
+            .map_err(|e| anyhow::anyhow!("Plugin init failed: {}", e))?;
+
+        tracing::info!("Plugin {} initialized successfully", info.id);
+
+        // Note: The plugin instance resource is owned by the WASM component
+        // We don't need to track it on the host side for now
+        // In a full implementation, we might want to store the Store and instance
+        // to be able to call methods on the plugin later
 
         // Register the plugin
         self.registry.register_plugin(info.clone())?;
 
-        tracing::info!("Successfully loaded plugin: {}", info.name);
+        tracing::info!(
+            "Successfully loaded plugin: {} v{}",
+            info.name,
+            info.version
+        );
         Ok(info)
     }
 
@@ -303,9 +629,8 @@ impl PluginManager {
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker)
             .context("Failed to add WASI to plugin linker")?;
 
-        // TODO: Add plugin registry functions
-        // This will require using wasmtime's component model bindings
-        // For now, we have the structure in place
+        // TODO: Add registry host functions when plugins need to call them
+        // For now, plugins only export lifecycle functions, they don't import registry
 
         Ok(linker)
     }
@@ -385,5 +710,268 @@ mod tests {
         let plugins = registry.get_plugins();
         assert_eq!(plugins.len(), 1);
         assert!(plugins.contains_key("com.example.test"));
+    }
+
+    #[test]
+    fn test_schema_merging() {
+        let registry = PluginRegistry::new();
+
+        // Register first plugin schema with "temp" field
+        let schema1 = Schema {
+            json_schema: r#"{
+                "type": "object",
+                "properties": {
+                    "temp": {"type": "number"},
+                    "speed": {"type": "number"}
+                },
+                "required": ["temp"]
+            }"#
+            .to_string(),
+            description: Some("Plugin 1 schema".to_string()),
+        };
+        registry
+            .register_config_schema("plugin1".to_string(), schema1)
+            .unwrap();
+
+        // Register second plugin schema with "pressure" field
+        let schema2 = Schema {
+            json_schema: r#"{
+                "type": "object",
+                "properties": {
+                    "pressure": {"type": "number"},
+                    "flow": {"type": "number"}
+                },
+                "required": ["pressure"]
+            }"#
+            .to_string(),
+            description: Some("Plugin 2 schema".to_string()),
+        };
+        registry
+            .register_config_schema("plugin2".to_string(), schema2)
+            .unwrap();
+
+        // Get merged schema
+        let merged = registry.get_merged_schema().unwrap();
+        let merged_value: serde_json::Value = serde_json::from_str(&merged.json_schema).unwrap();
+
+        // Check that all properties are merged
+        let props = merged_value["properties"].as_object().unwrap();
+        assert!(props.contains_key("temp"));
+        assert!(props.contains_key("speed"));
+        assert!(props.contains_key("pressure"));
+        assert!(props.contains_key("flow"));
+
+        // Check that required fields are merged
+        let required = merged_value["required"].as_array().unwrap();
+        assert_eq!(required.len(), 2);
+        assert!(required.contains(&serde_json::json!("temp")));
+        assert!(required.contains(&serde_json::json!("pressure")));
+    }
+
+    #[test]
+    fn test_schema_conflict_detection_same_field_compatible() {
+        let registry = PluginRegistry::new();
+
+        // Register first plugin with "temp" as number
+        let schema1 = Schema {
+            json_schema: r#"{
+                "type": "object",
+                "properties": {
+                    "temp": {"type": "number"}
+                }
+            }"#
+            .to_string(),
+            description: Some("Plugin 1".to_string()),
+        };
+        registry
+            .register_config_schema("plugin1".to_string(), schema1)
+            .unwrap();
+
+        // Register second plugin with same "temp" field as number - should work
+        let schema2 = Schema {
+            json_schema: r#"{
+                "type": "object",
+                "properties": {
+                    "temp": {"type": "number"}
+                }
+            }"#
+            .to_string(),
+            description: Some("Plugin 2".to_string()),
+        };
+        let result = registry.register_config_schema("plugin2".to_string(), schema2);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_schema_conflict_detection_incompatible_types() {
+        let registry = PluginRegistry::new();
+
+        // Register first plugin with "temp" as number
+        let schema1 = Schema {
+            json_schema: r#"{
+                "type": "object",
+                "properties": {
+                    "temp": {"type": "number"}
+                }
+            }"#
+            .to_string(),
+            description: Some("Plugin 1".to_string()),
+        };
+        registry
+            .register_config_schema("plugin1".to_string(), schema1)
+            .unwrap();
+
+        // Try to register second plugin with "temp" as string - should fail
+        let schema2 = Schema {
+            json_schema: r#"{
+                "type": "object",
+                "properties": {
+                    "temp": {"type": "string"}
+                }
+            }"#
+            .to_string(),
+            description: Some("Plugin 2".to_string()),
+        };
+        let result = registry.register_config_schema("plugin2".to_string(), schema2);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("incompatible types")
+        );
+    }
+
+    #[test]
+    fn test_schema_duplicate_plugin_registration() {
+        let registry = PluginRegistry::new();
+
+        let schema = Schema {
+            json_schema: r#"{"type": "object", "properties": {}}"#.to_string(),
+            description: Some("Test".to_string()),
+        };
+
+        // First registration should succeed
+        assert!(
+            registry
+                .register_config_schema("plugin1".to_string(), schema.clone())
+                .is_ok()
+        );
+
+        // Second registration with same plugin ID should fail
+        let result = registry.register_config_schema("plugin1".to_string(), schema);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("already registered")
+        );
+    }
+
+    #[test]
+    fn test_config_validation_valid() {
+        let registry = PluginRegistry::new();
+
+        // Register a schema with required fields
+        let schema = Schema {
+            json_schema: r#"{
+                "type": "object",
+                "properties": {
+                    "temp": {"type": "number"},
+                    "name": {"type": "string"}
+                },
+                "required": ["temp"]
+            }"#
+            .to_string(),
+            description: Some("Test schema".to_string()),
+        };
+        registry
+            .register_config_schema("plugin1".to_string(), schema)
+            .unwrap();
+
+        // Valid config with required field
+        let valid_config = r#"{"temp": 200, "name": "test"}"#;
+        assert!(registry.validate_config(valid_config).is_ok());
+
+        // Valid config with just required field
+        let valid_config2 = r#"{"temp": 180}"#;
+        assert!(registry.validate_config(valid_config2).is_ok());
+    }
+
+    #[test]
+    fn test_config_validation_missing_required() {
+        let registry = PluginRegistry::new();
+
+        // Register a schema with required fields
+        let schema = Schema {
+            json_schema: r#"{
+                "type": "object",
+                "properties": {
+                    "temp": {"type": "number"},
+                    "name": {"type": "string"}
+                },
+                "required": ["temp"]
+            }"#
+            .to_string(),
+            description: Some("Test schema".to_string()),
+        };
+        registry
+            .register_config_schema("plugin1".to_string(), schema)
+            .unwrap();
+
+        // Invalid config missing required field
+        let invalid_config = r#"{"name": "test"}"#;
+        let result = registry.validate_config(invalid_config);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Required field 'temp' is missing")
+        );
+    }
+
+    #[test]
+    fn test_config_validation_invalid_json() {
+        let registry = PluginRegistry::new();
+
+        let schema = Schema {
+            json_schema: r#"{"type": "object", "properties": {}}"#.to_string(),
+            description: Some("Test schema".to_string()),
+        };
+        registry
+            .register_config_schema("plugin1".to_string(), schema)
+            .unwrap();
+
+        // Invalid JSON
+        let invalid_config = r#"{"temp": not valid json}"#;
+        let result = registry.validate_config(invalid_config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not valid JSON"));
+    }
+
+    #[test]
+    fn test_config_validation_not_object() {
+        let registry = PluginRegistry::new();
+
+        let schema = Schema {
+            json_schema: r#"{"type": "object", "properties": {}}"#.to_string(),
+            description: Some("Test schema".to_string()),
+        };
+        registry
+            .register_config_schema("plugin1".to_string(), schema)
+            .unwrap();
+
+        // Config that's not an object
+        let invalid_config = r#"["array", "not", "object"]"#;
+        let result = registry.validate_config(invalid_config);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("must be a JSON object")
+        );
     }
 }
