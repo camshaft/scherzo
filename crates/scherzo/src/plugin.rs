@@ -3,6 +3,7 @@
 /// This module handles loading WebAssembly plugins, managing their lifecycle,
 /// and maintaining registries for config schemas and command handlers.
 use anyhow::{Context, Result, bail};
+use jsonschema::Validator;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -10,7 +11,7 @@ use std::{
 };
 use wasmtime::{
     Engine, Store,
-    component::{Component, Linker, ResourceTable},
+    component::{Component, Linker, Resource, ResourceTable},
 };
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiView};
 
@@ -26,52 +27,115 @@ pub use scherzo::plugin::types::{
     Schema as WitSchema,
 };
 
-/// Check if two schemas are compatible
-/// Returns an error if they define conflicting requirements for the same fields
-fn check_schema_compatibility(
-    new_schema: &serde_json::Value,
-    existing_schema: &serde_json::Value,
-    existing_plugin: &str,
-    new_plugin: &str,
-) -> Result<()> {
-    // Get properties from both schemas
-    let new_props = new_schema.get("properties").and_then(|p| p.as_object());
-    let existing_props = existing_schema
-        .get("properties")
-        .and_then(|p| p.as_object());
+/// Schema conflict error tracking which plugins have conflicting definitions
+#[derive(Debug, Clone)]
+pub struct SchemaConflict {
+    pub field_path: String,
+    pub plugin_a: String,
+    pub plugin_b: String,
+    pub conflict_type: String,
+    pub details: String,
+}
 
-    if let (Some(new_props), Some(existing_props)) = (new_props, existing_props) {
-        // Check for overlapping fields
-        for (field_name, new_field_def) in new_props {
-            if let Some(existing_field_def) = existing_props.get(field_name) {
-                // Field exists in both schemas - check if they're compatible
+impl std::fmt::Display for SchemaConflict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Field '{}': {} between plugins '{}' and '{}' - {}",
+            self.field_path, self.conflict_type, self.plugin_a, self.plugin_b, self.details
+        )
+    }
+}
 
-                // Check if types match
-                let new_type = new_field_def.get("type");
-                let existing_type = existing_field_def.get("type");
+/// Recursively merge a plugin schema into the base schema
+/// Returns a list of conflicts found during merging
+fn merge_schema(
+    base: &mut serde_json::Value,
+    plugin_schema: &serde_json::Value,
+    plugin_id: &str,
+    field_attributions: &mut HashMap<String, Vec<String>>,
+    path: &str,
+) -> Vec<SchemaConflict> {
+    let mut conflicts = Vec::new();
 
-                if new_type != existing_type {
-                    bail!(
-                        "Plugin '{}' and '{}' have incompatible types for field '{}': {:?} vs {:?}",
-                        new_plugin,
-                        existing_plugin,
-                        field_name,
-                        new_type,
-                        existing_type
-                    );
+    // Handle object type schemas
+    if let (Some(base_obj), Some(plugin_obj)) =
+        (base.as_object_mut(), plugin_schema.as_object())
+    {
+        // Merge properties recursively
+        if let Some(plugin_props) = plugin_obj.get("properties").and_then(|p| p.as_object()) {
+            let base_props = base_obj
+                .entry("properties")
+                .or_insert_with(|| serde_json::json!({}))
+                .as_object_mut()
+                .unwrap();
+
+            for (prop_name, prop_value) in plugin_props {
+                let field_path = if path.is_empty() {
+                    prop_name.clone()
+                } else {
+                    format!("{}.{}", path, prop_name)
+                };
+
+                // Track which plugins define this field
+                field_attributions
+                    .entry(field_path.clone())
+                    .or_default()
+                    .push(plugin_id.to_string());
+
+                if let Some(existing_prop) = base_props.get_mut(prop_name) {
+                    // Field exists - check for conflicts
+                    if let (Some(existing_type), Some(new_type)) =
+                        (existing_prop.get("type"), prop_value.get("type"))
+                    {
+                        if existing_type != new_type {
+                            conflicts.push(SchemaConflict {
+                                field_path: field_path.clone(),
+                                plugin_a: field_attributions[&field_path][0].clone(),
+                                plugin_b: plugin_id.to_string(),
+                                conflict_type: "Type mismatch".to_string(),
+                                details: format!("{:?} vs {:?}", existing_type, new_type),
+                            });
+                        }
+                    }
+
+                    // Recursively merge nested objects
+                    if prop_value.is_object() {
+                        let nested_conflicts = merge_schema(
+                            existing_prop,
+                            prop_value,
+                            plugin_id,
+                            field_attributions,
+                            &field_path,
+                        );
+                        conflicts.extend(nested_conflicts);
+                    }
+                } else {
+                    // New field - add it
+                    base_props.insert(prop_name.clone(), prop_value.clone());
                 }
+            }
+        }
 
-                // For more complex checks, we could also validate:
-                // - enum values
-                // - number ranges (minimum, maximum)
-                // - string patterns
-                // - array item types
-                // For now, we keep it simple and just check the type matches
+        // Merge required fields
+        if let Some(plugin_required) = plugin_obj.get("required").and_then(|r| r.as_array()) {
+            let base_required = base_obj
+                .entry("required")
+                .or_insert_with(|| serde_json::json!([]))
+                .as_array_mut()
+                .unwrap();
+
+            for req_field in plugin_required {
+                if let Some(field_name) = req_field.as_str() {
+                    if !base_required.contains(req_field) {
+                        base_required.push(req_field.clone());
+                    }
+                }
             }
         }
     }
 
-    Ok(())
+    conflicts
 }
 
 /// Plugin metadata
@@ -84,19 +148,36 @@ pub struct PluginInfo {
 }
 
 /// Schema definition for configuration or command parameters
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Schema {
-    /// JSON Schema as a string
-    pub json_schema: String,
+    /// JSON Schema as a parsed Value
+    pub schema: serde_json::Value,
     /// Human-readable description
     pub description: Option<String>,
 }
 
+impl Schema {
+    /// Parse a schema from a JSON string
+    pub fn from_json(json_schema: &str, description: Option<String>) -> Result<Self> {
+        let schema = serde_json::from_str(json_schema)
+            .context("Failed to parse schema as JSON")?;
+        Ok(Self { schema, description })
+    }
+
+    /// Get the schema as a JSON string
+    pub fn to_json_string(&self) -> Result<String> {
+        serde_json::to_string(&self.schema).context("Failed to serialize schema to JSON")
+    }
+}
+
 impl From<WitSchema> for Schema {
-    fn from(schema: WitSchema) -> Self {
+    fn from(wit_schema: WitSchema) -> Self {
+        // Parse the JSON schema string into a Value
+        let schema = serde_json::from_str(&wit_schema.json_schema)
+            .unwrap_or_else(|_| serde_json::json!({"type": "object", "properties": {}}));
         Self {
-            json_schema: schema.json_schema,
-            description: schema.description,
+            schema,
+            description: wit_schema.description,
         }
     }
 }
