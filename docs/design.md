@@ -149,6 +149,35 @@ This document proposes a 3D printer firmware architecture that treats all high-l
 - Handle auth/session in-host; push events over WebSocket for status/prints/sensors/logs.
 - Provide a thin compatibility plugin for any remaining Moonraker-specific endpoints using host APIs, so legacy clients keep working without the Unix domain socket indirection.
 
+## Plugin loading and G-code macro expansion
+
+- **Plugin loading at boot**: The host loads plugins specified in the configuration file at startup. Each plugin is a WebAssembly component that conforms to the plugin WIT interface.
+- **Schema registration**: During initialization, plugins register:
+  - Configuration schemas describing their settings (using JSON Schema format)
+  - Command handler registrations with parameter schemas defining field names, types, requirements, defaults, and descriptions
+  - Each handler declares its scheduling class (real-time vs best-effort)
+- **Host registry**: The host maintains registries of all registered schemas and handlers, which become part of the active command vocabulary.
+- **Macro expansion pipeline**: The key insight is that plugins provide schemas, not implementations, at job compile time:
+  1. A G-code job is submitted (or compiled from raw G-code)
+  2. The compiler queries the plugin registry to get all registered command schemas
+  3. For each command in the job, the compiler generates builder code that validates parameters against the registered schema
+  4. The result is a job WASM component that expands the high-level commands into structured calls to plugin handlers
+  5. At runtime, the job component calls the builder interfaces, which dispatch to the actual plugin implementations
+- **Two-phase compilation**: This creates a clean separation:
+  - **Compile time**: Job is expanded and validated against schemas; produces a WASM module with explicit calls to builder interfaces
+  - **Runtime**: The host links the job component to the actual plugin implementations and executes
+- **Benefits of this approach**:
+  - Jobs are pre-validated against plugin schemas before execution
+  - The job WASM acts as a "compiled macro expansion" of the original G-code
+  - Plugins can update their implementations without recompiling jobs (as long as schemas remain compatible)
+  - Clear API boundary between job compilation and plugin execution
+  - Enables static analysis, time estimation, and toolpath preview by analyzing the expanded job component
+- **WIT interface contract**: The plugin WIT defines:
+  - `scherzo:plugin/types` - Common types for schemas, field definitions, and handlers
+  - `scherzo:plugin/registry` - Host-provided functions for plugins to register schemas and handlers
+  - `scherzo:plugin/lifecycle` - Plugin initialization, info, and cleanup exports
+- **G-code macro equivalence**: This mechanism replaces traditional G-code macros (like Klipper's `[gcode_macro]`) with a more structured, typed, and validated approach. Each command handler is essentially a typed macro with explicit parameter schemas.
+
 ## Tooling, testing, and simulation
 
 - **Developer tooling**: CLI to scaffold components from WIT (bindings, manifest templates, config schema stubs). Local runner to execute components against a mock host.

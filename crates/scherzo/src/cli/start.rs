@@ -1,32 +1,17 @@
-use crate::config::Config;
+use crate::{config::Config, plugin::PluginManager};
 use anyhow::{Context, Result};
 use clap::Args;
-use std::{fs, path::PathBuf};
+use std::path::PathBuf;
 use wasmtime::{
-    Config as WasmtimeConfig, Engine, Store,
-    component::{Component, Linker, ResourceTable},
+    Config as WasmtimeConfig, Engine,
+    component::{Linker, ResourceTable},
 };
-use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
+use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
 
 #[derive(Args)]
 pub struct StartArgs {
     /// Path to the configuration file (TOML or JSON).
     pub config: PathBuf,
-}
-
-/// State for the boot plugins environment
-pub struct PluginState {
-    wasi: WasiCtx,
-    table: ResourceTable,
-}
-
-impl WasiView for PluginState {
-    fn ctx(&mut self) -> WasiCtxView<'_> {
-        WasiCtxView {
-            ctx: &mut self.wasi,
-            table: &mut self.table,
-        }
-    }
 }
 
 /// State for the print job environment
@@ -67,16 +52,33 @@ impl StartArgs {
 
         let engine = Engine::new(&wasmtime_config).context("failed to create wasmtime engine")?;
 
-        // Create boot plugin environment
-        let plugin_linker = create_plugin_linker(&engine)?;
-
-        // Create print job environment
-        let _job_linker = create_job_linker(&engine)?;
+        // Create plugin manager
+        let mut plugin_manager = PluginManager::new(engine.clone());
 
         // Load boot plugins if specified in config
         for plugin_path in &config.plugins {
-            load_boot_plugin(&engine, &plugin_linker, plugin_path)?;
+            // TODO: Load plugin-specific config from main config
+            let plugin_config = "{}"; // Empty JSON object for now
+            match plugin_manager.load_plugin(plugin_path, plugin_config) {
+                Ok(info) => {
+                    tracing::info!("Loaded plugin: {} v{}", info.name, info.version);
+                }
+                Err(e) => {
+                    tracing::error!("Failed to load plugin {}: {}", plugin_path, e);
+                    // Continue loading other plugins instead of failing completely
+                }
+            }
         }
+
+        // Log registered schemas and handlers
+        let registry = plugin_manager.registry();
+        let schemas = registry.get_config_schemas();
+        let handlers = registry.get_command_handlers();
+        tracing::info!("Registered {} config schemas", schemas.len());
+        tracing::info!("Registered {} command handlers", handlers.len());
+
+        // Create print job environment
+        let _job_linker = create_job_linker(&engine)?;
 
         tracing::info!("Scherzo runtime initialized");
 
@@ -105,19 +107,6 @@ async fn start_server(config: Config) -> Result<()> {
     Ok(())
 }
 
-/// Create a linker for boot plugins with WASI support
-fn create_plugin_linker(engine: &Engine) -> Result<Linker<PluginState>> {
-    let mut linker = Linker::new(engine);
-
-    // Add WASI to the linker
-    wasmtime_wasi::p2::add_to_linker_sync(&mut linker)
-        .context("failed to add WASI to plugin linker")?;
-
-    // TODO: Add custom host functions for plugin system interaction
-
-    Ok(linker)
-}
-
 /// Create a linker for print jobs with command dispatch support
 fn create_job_linker(engine: &Engine) -> Result<Linker<JobState>> {
     let linker = Linker::new(engine);
@@ -125,36 +114,4 @@ fn create_job_linker(engine: &Engine) -> Result<Linker<JobState>> {
     // TODO: Add command dispatch interface for jobs
 
     Ok(linker)
-}
-
-/// Load and initialize a boot plugin
-fn load_boot_plugin(
-    engine: &Engine,
-    linker: &Linker<PluginState>,
-    plugin_path: &str,
-) -> Result<()> {
-    println!("Loading boot plugin: {}", plugin_path);
-
-    let wasm_bytes = fs::read(plugin_path)
-        .with_context(|| format!("failed to read plugin file {}", plugin_path))?;
-
-    let component = Component::from_binary(engine, &wasm_bytes)
-        .with_context(|| format!("failed to compile plugin component {}", plugin_path))?;
-
-    // Create store for this plugin
-    let wasi = WasiCtxBuilder::new().inherit_stdio().inherit_env().build();
-    let table = ResourceTable::new();
-    let state = PluginState { wasi, table };
-    let mut store = Store::new(engine, state);
-
-    // Instantiate the component
-    let _instance = linker
-        .instantiate(&mut store, &component)
-        .with_context(|| format!("failed to instantiate plugin {}", plugin_path))?;
-
-    println!("Successfully loaded plugin: {}", plugin_path);
-
-    // TODO: Call plugin initialization function
-
-    Ok(())
 }

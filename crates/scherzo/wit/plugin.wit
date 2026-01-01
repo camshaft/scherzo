@@ -1,0 +1,113 @@
+// WIT interface for Scherzo plugins
+//
+// This defines the contract between plugins and the host runtime.
+// Plugins can register configuration schemas and command handlers.
+
+package scherzo:plugin@0.1.0;
+
+/// Types and structures for plugin configuration
+interface types {
+    /// Schema definition for configuration or command parameters
+    /// Uses JSON Schema format for flexibility
+    record schema {
+        /// JSON Schema as a string (e.g., JSON Schema Draft 7)
+        json-schema: string,
+        /// Human-readable description
+        description: option<string>,
+    }
+
+    /// Field type for command parameters
+    enum field-type {
+        /// 64-bit signed integer
+        integer,
+        /// 64-bit floating point number
+        floating,
+        /// UTF-8 string
+        text,
+        /// Boolean value
+        boolean,
+        /// List of integers
+        list-integer,
+        /// List of floats
+        list-floating,
+        /// List of strings
+        list-text,
+    }
+
+    /// Field definition for a command parameter
+    record field-def {
+        /// Field name (e.g., "x", "temperature", "speed")
+        name: string,
+        /// Field type
+        field-type: field-type,
+        /// Whether this field is required
+        required: bool,
+        /// Human-readable description
+        description: option<string>,
+        /// Default value as JSON
+        default-value: option<string>,
+    }
+
+    /// Handler for a G-code command or high-level command
+    record command-handler {
+        /// Command name (e.g., "G1", "M104", "SET_FILAMENT_PROFILE")
+        command: string,
+        /// Parameter schema
+        params: list<field-def>,
+        /// Handler description
+        description: option<string>,
+        /// Scheduling class: "rt" for real-time, "be" for best-effort
+        scheduling-class: string,
+    }
+}
+
+/// Host-provided registry for plugin registration
+interface registry {
+    use types.{schema, command-handler};
+
+    /// Register a configuration schema for this plugin
+    /// The namespace should be the plugin ID to avoid collisions
+    register-config-schema: func(namespace: string, schema: schema) -> result<_, string>;
+
+    /// Register a command handler
+    /// Returns a handler ID that can be used to unregister later
+    register-command-handler: func(handler: command-handler) -> result<u32, string>;
+
+    /// Unregister a command handler by ID
+    unregister-command-handler: func(handler-id: u32) -> result<_, string>;
+}
+
+/// Plugin lifecycle and initialization
+interface lifecycle {
+    /// Plugin metadata
+    record plugin-info {
+        /// Unique plugin identifier (reverse domain notation recommended)
+        id: string,
+        /// Plugin name
+        name: string,
+        /// Plugin version
+        version: string,
+        /// Plugin description
+        description: option<string>,
+    }
+
+    /// Get plugin information
+    /// This is called first when loading a plugin
+    get-info: func() -> plugin-info;
+
+    /// Initialize the plugin with validated configuration
+    /// The config is provided as JSON matching the registered schema
+    init: func(config: string) -> result<_, string>;
+
+    /// Optional: Cleanup before plugin unload
+    cleanup: func();
+}
+
+/// Main plugin world
+world plugin {
+    /// Import host registry to register schemas and handlers
+    import registry;
+
+    /// Export lifecycle functions
+    export lifecycle;
+}
