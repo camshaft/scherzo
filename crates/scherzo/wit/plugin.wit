@@ -63,11 +63,7 @@ interface types {
 
 /// Host-provided registry for plugin registration
 interface registry {
-    use types.{schema, command-handler};
-
-    /// Register a configuration schema for this plugin
-    /// The namespace should be the plugin ID to avoid collisions
-    register-config-schema: func(namespace: string, schema: schema) -> result<_, string>;
+    use types.{command-handler};
 
     /// Register a command handler
     /// Returns a handler ID that can be used to unregister later
@@ -79,6 +75,8 @@ interface registry {
 
 /// Plugin lifecycle and initialization
 interface lifecycle {
+    use types.{schema};
+
     /// Plugin metadata
     record plugin-info {
         /// Unique plugin identifier (reverse domain notation recommended)
@@ -91,13 +89,26 @@ interface lifecycle {
         description: option<string>,
     }
 
+    /// Resource representing a plugin instance
+    /// Returned by init and tied to the plugin+config combination
+    resource plugin-instance {
+        /// Get the plugin ID for this instance
+        get-id: func() -> string;
+    }
+
     /// Get plugin information
     /// This is called first when loading a plugin
     get-info: func() -> plugin-info;
 
+    /// Get the configuration schema for this plugin
+    /// This is a static function called before initialization
+    /// Returns the schema that describes expected configuration fields
+    get-config-schema: func() -> schema;
+
     /// Initialize the plugin with validated configuration
     /// The config is provided as JSON matching the registered schema
-    init: func(config: string) -> result<_, string>;
+    /// Returns a plugin instance resource
+    init: func(config: string) -> result<plugin-instance, string>;
 
     /// Optional: Cleanup before plugin unload
     cleanup: func();
