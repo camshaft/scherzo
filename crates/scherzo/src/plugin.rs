@@ -234,7 +234,6 @@ impl PluginRegistry {
     }
 
     /// Get or build the merged configuration schema from all plugins
-    #[allow(dead_code)] // Will be used for config validation
     pub fn get_merged_schema(&self) -> Result<Schema> {
         // Check if we have a cached merged schema
         {
