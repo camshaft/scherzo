@@ -5,6 +5,7 @@ mod cli;
 mod config;
 mod plugin;
 mod server;
+mod wasm_util;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();

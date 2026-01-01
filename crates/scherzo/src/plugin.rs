@@ -14,6 +14,8 @@ use wasmtime::{
 };
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiView};
 
+use crate::wasm_util::{PluginConfigSchema, extract_plugin_schema};
+
 // Generate WIT bindings using wasmtime's bindgen! macro
 wasmtime::component::bindgen!({
     path: "wit",
@@ -235,6 +237,37 @@ impl WasiView for PluginState {
     }
 }
 
+// Implement the host side of the registry interface
+impl scherzo::plugin::registry::Host for PluginState {
+    fn register_config_schema(
+        &mut self,
+        namespace: String,
+        schema: WitSchema,
+    ) -> std::result::Result<(), String> {
+        self.registry
+            .register_config_schema(namespace, schema.into())
+            .map_err(|e| e.to_string())
+    }
+
+    fn register_command_handler(
+        &mut self,
+        handler: WitCommandHandler,
+    ) -> std::result::Result<u32, String> {
+        self.registry
+            .register_command_handler(handler.into())
+            .map_err(|e| e.to_string())
+    }
+
+    fn unregister_command_handler(&mut self, handler_id: u32) -> std::result::Result<(), String> {
+        self.registry
+            .unregister_command_handler(handler_id)
+            .map_err(|e| e.to_string())
+    }
+}
+
+// Implement empty types Host trait if needed
+impl scherzo::plugin::types::Host for PluginState {}
+
 /// Plugin manager for loading and managing plugins
 pub struct PluginManager {
     engine: Engine,
@@ -254,44 +287,68 @@ impl PluginManager {
         &self.registry
     }
 
+    /// Extract configuration schemas from plugin files without loading them
+    /// Returns a map of plugin ID to schema
+    pub fn extract_schemas(plugin_paths: &[String]) -> Result<HashMap<String, PluginConfigSchema>> {
+        let mut schemas = HashMap::new();
+
+        for path in plugin_paths {
+            tracing::debug!("Extracting schema from plugin: {}", path);
+
+            // Read the plugin file
+            let wasm_bytes = std::fs::read(path)
+                .with_context(|| format!("Failed to read plugin file: {}", path))?;
+
+            // Extract schema from custom section
+            if let Some(schema) = extract_plugin_schema(&wasm_bytes)? {
+                tracing::info!(
+                    "Extracted config schema for plugin: {}",
+                    schema.plugin_id
+                );
+                schemas.insert(schema.plugin_id.clone(), schema);
+            } else {
+                tracing::debug!("Plugin {} has no config schema", path);
+            }
+        }
+
+        Ok(schemas)
+    }
+
     /// Load a plugin from a WebAssembly component file
-    pub fn load_plugin(&mut self, path: &str, _config: &str) -> Result<PluginInfo> {
+    /// The config parameter should be a JSON string containing the plugin-specific configuration
+    pub fn load_plugin(&mut self, path: &str, config: &str) -> Result<PluginInfo> {
         tracing::info!("Loading plugin from: {}", path);
 
         // Read the plugin file
         let wasm_bytes =
             std::fs::read(path).with_context(|| format!("Failed to read plugin file: {}", path))?;
 
+        // Extract schema from custom section
+        let schema = extract_plugin_schema(&wasm_bytes)?;
+        let plugin_id = schema
+            .as_ref()
+            .map(|s| s.plugin_id.clone())
+            .unwrap_or_else(|| format!("plugin-{}", path));
+
         // Compile the component
-        let component = Component::from_binary(&self.engine, &wasm_bytes)
+        let _component = Component::from_binary(&self.engine, &wasm_bytes)
             .with_context(|| format!("Failed to compile plugin component: {}", path))?;
 
-        // Create a linker with the registry interface
-        let linker = self.create_plugin_linker()?;
-
-        // Create store with plugin state
-        let state = PluginState::new(self.registry.clone());
-        let mut store = Store::new(&self.engine, state);
-
-        // Instantiate the component
-        let _instance = linker
-            .instantiate(&mut store, &component)
-            .with_context(|| format!("Failed to instantiate plugin: {}", path))?;
-
-        // TODO: Call get-info to get plugin metadata
-        // TODO: Call init with the config
-        // For now, create placeholder info
+        // For now, create placeholder info since we can't instantiate the plugin yet
+        // TODO: Instantiate plugin and call get-info and init when linker is working
         let info = PluginInfo {
-            id: format!("plugin-{}", path),
-            name: path.to_string(),
+            id: plugin_id.clone(),
+            name: schema.as_ref().map(|s| s.plugin_id.clone()).unwrap_or_else(|| path.to_string()),
             version: "0.1.0".to_string(),
-            description: Some(format!("Plugin loaded from {}", path)),
+            description: schema.as_ref().and_then(|s| s.description.clone()),
         };
+
+        tracing::info!("Config for plugin: {}", config);
 
         // Register the plugin
         self.registry.register_plugin(info.clone())?;
 
-        tracing::info!("Successfully loaded plugin: {}", info.name);
+        tracing::info!("Successfully loaded plugin: {} v{}", info.name, info.version);
         Ok(info)
     }
 
@@ -303,9 +360,10 @@ impl PluginManager {
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker)
             .context("Failed to add WASI to plugin linker")?;
 
-        // TODO: Add plugin registry functions
-        // This will require using wasmtime's component model bindings
-        // For now, we have the structure in place
+        // For now, return the linker without registry functions
+        // The plugin will not be able to register schemas/handlers dynamically
+        // but we can extract schemas from custom sections statically
+        // TODO: Implement proper host function linking when we have a working plugin
 
         Ok(linker)
     }

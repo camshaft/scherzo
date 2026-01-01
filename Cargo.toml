@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 
-members = ["crates/scherzo", "crates/scherzo-*", "xtask"]
+members = ["crates/scherzo", "crates/scherzo-*", "crates/example-plugin", "xtask"]
 
 [workspace.package]
 version = "0.1.0"
@@ -54,6 +54,7 @@ wasmparser = "0.243"
 wasmprinter = "0.243"
 wasmtime = "40"
 wasmtime-wasi = "40"
+wat = "1.243"
 wit-bindgen = "0.38"
 wit-component = "0.243"
 wit-encoder = "0.243"

@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::{fs, path::Path};
+use serde_json::Value as JsonValue;
+use std::{collections::HashMap, fs, path::Path};
 
 /// Main configuration for the Scherzo runtime
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,6 +17,11 @@ pub struct Config {
     /// Job storage configuration
     #[serde(default)]
     pub jobs: JobsConfig,
+
+    /// Plugin-specific configurations, keyed by plugin ID
+    /// This is populated dynamically based on loaded plugins
+    #[serde(default, flatten)]
+    pub plugin_config: HashMap<String, JsonValue>,
 }
 
 /// Server configuration

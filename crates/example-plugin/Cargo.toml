@@ -1,0 +1,21 @@
+[package]
+name = "example-plugin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen.workspace = true
+
+[build-dependencies]
+serde_json.workspace = true
+
+[package.metadata.component]
+package = "scherzo:plugin"
+
+[package.metadata.component.target]
+path = "../scherzo/wit"

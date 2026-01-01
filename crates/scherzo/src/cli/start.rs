@@ -52,14 +52,41 @@ impl StartArgs {
 
         let engine = Engine::new(&wasmtime_config).context("failed to create wasmtime engine")?;
 
+        // Extract schemas from all plugins before loading them
+        tracing::info!("Extracting plugin schemas...");
+        let plugin_schemas = PluginManager::extract_schemas(&config.plugins)
+            .context("failed to extract plugin schemas")?;
+
+        for (plugin_id, schema) in &plugin_schemas {
+            tracing::info!("Found config schema for plugin: {}", plugin_id);
+            if let Some(desc) = &schema.description {
+                tracing::info!("  Description: {}", desc);
+            }
+        }
+
         // Create plugin manager
         let mut plugin_manager = PluginManager::new(engine.clone());
 
         // Load boot plugins if specified in config
         for plugin_path in &config.plugins {
-            // TODO: Load plugin-specific config from main config
-            let plugin_config = "{}"; // Empty JSON object for now
-            match plugin_manager.load_plugin(plugin_path, plugin_config) {
+            // Extract plugin-specific config from main config
+            // First, we need to know the plugin ID to look up its config
+            let wasm_bytes = std::fs::read(plugin_path)
+                .with_context(|| format!("Failed to read plugin file: {}", plugin_path))?;
+            let schema = crate::wasm_util::extract_plugin_schema(&wasm_bytes)?;
+
+            let plugin_config = if let Some(schema) = schema {
+                // Look up plugin-specific config in the main config
+                config
+                    .plugin_config
+                    .get(&schema.plugin_id)
+                    .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()))
+                    .unwrap_or_else(|| "{}".to_string())
+            } else {
+                "{}".to_string()
+            };
+
+            match plugin_manager.load_plugin(plugin_path, &plugin_config) {
                 Ok(info) => {
                     tracing::info!("Loaded plugin: {} v{}", info.name, info.version);
                 }
