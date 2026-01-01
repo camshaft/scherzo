@@ -1,7 +1,4 @@
-use crate::{
-    config::{Config, verify_password},
-    plugin::PluginRegistry,
-};
+use crate::config::{Config, verify_password};
 use anyhow::{Context, Result};
 use axum::{
     Router,
@@ -27,7 +24,6 @@ use uuid::Uuid;
 pub struct AppState {
     config: Arc<Config>,
     jobs: Arc<RwLock<JobStore>>,
-    plugin_registry: Arc<PluginRegistry>,
 }
 
 /// In-memory job store with metadata
@@ -91,7 +87,7 @@ pub struct PreviewResponse {
 }
 
 impl AppState {
-    pub fn new(config: Config, plugin_registry: PluginRegistry) -> Result<Self> {
+    pub fn new(config: Config) -> Result<Self> {
         let storage_dir = PathBuf::from(&config.jobs.storage_dir);
         fs::create_dir_all(&storage_dir).context("failed to create jobs storage directory")?;
 
@@ -103,7 +99,6 @@ impl AppState {
         Ok(Self {
             config: Arc::new(config),
             jobs: Arc::new(RwLock::new(jobs)),
-            plugin_registry: Arc::new(plugin_registry),
         })
     }
 }
@@ -212,40 +207,15 @@ async fn upload_job(
         || content_type.contains("text/plain")
         || content_type.contains("text/x-gcode")
     {
-        // It's G-code, compile it with plugin schemas
+        // It's G-code, compile it
         tracing::info!("Compiling G-code to WebAssembly component");
         let gcode_source =
             String::from_utf8(body.to_vec()).map_err(|_| AppError::InvalidGCode {
                 message: "G-code file must be valid UTF-8".to_string(),
             })?;
 
-        // Build compile options with plugin schemas
-        let mut options = scherzo_compile::CompileOptions::default();
-        let command_handlers = state.plugin_registry.get_command_handlers();
-
-        for (_handler_id, handler) in command_handlers {
-            let schema = scherzo_compile::PluginCommandSchema {
-                command: handler.command.clone(),
-                params: handler
-                    .params
-                    .iter()
-                    .map(|p| scherzo_compile::PluginFieldSchema {
-                        name: p.name.clone(),
-                        field_type: convert_field_type(&p.field_type),
-                        required: p.required,
-                        description: p.description.clone(),
-                        default_value: p.default_value.clone(),
-                    })
-                    .collect(),
-                description: handler.description.clone(),
-            };
-            options
-                .plugin_schemas
-                .insert(handler.command.clone(), schema);
-        }
-
-        let compilation = scherzo_compile::compile_gcode_with_options(&gcode_source, options)
-            .map_err(|e| AppError::InvalidGCode {
+        let compilation =
+            scherzo_compile::compile_gcode(&gcode_source).map_err(|e| AppError::InvalidGCode {
                 message: format!("Failed to compile G-code: {}", e),
             })?;
 
@@ -458,20 +428,4 @@ use base64::prelude::*;
 
 fn decode_base64(input: &str) -> Result<Vec<u8>, base64::DecodeError> {
     BASE64_STANDARD.decode(input)
-}
-
-/// Convert plugin field type to compile field type
-fn convert_field_type(field_type: &crate::plugin::FieldType) -> scherzo_compile::PluginFieldType {
-    use crate::plugin::FieldType;
-    use scherzo_compile::PluginFieldType;
-
-    match field_type {
-        FieldType::Int => PluginFieldType::Int,
-        FieldType::Float => PluginFieldType::Float,
-        FieldType::String => PluginFieldType::String,
-        FieldType::Bool => PluginFieldType::Bool,
-        FieldType::ListInt => PluginFieldType::ListInt,
-        FieldType::ListFloat => PluginFieldType::ListFloat,
-        FieldType::ListString => PluginFieldType::ListString,
-    }
 }

@@ -14,43 +14,6 @@ use wit_encoder::{
 };
 use wit_parser::Resolve;
 
-/// Schema for a command parameter provided by plugins
-#[derive(Debug, Clone)]
-pub struct PluginFieldSchema {
-    pub name: String,
-    pub field_type: PluginFieldType,
-    pub required: bool,
-    pub description: Option<String>,
-    pub default_value: Option<String>,
-}
-
-/// Field type for plugin-provided schemas
-#[derive(Debug, Clone, PartialEq)]
-pub enum PluginFieldType {
-    Int,
-    Float,
-    String,
-    Bool,
-    ListInt,
-    ListFloat,
-    ListString,
-}
-
-/// Schema for a command provided by plugins
-#[derive(Debug, Clone)]
-pub struct PluginCommandSchema {
-    pub command: String,
-    pub params: Vec<PluginFieldSchema>,
-    pub description: Option<String>,
-}
-
-/// Options for compiling G-code
-#[derive(Debug, Clone, Default)]
-pub struct CompileOptions {
-    /// Plugin-provided command schemas to validate against
-    pub plugin_schemas: HashMap<String, PluginCommandSchema>,
-}
-
 /// Result of compiling a G-code job.
 #[derive(Debug, Clone)]
 pub struct Compilation {
@@ -65,13 +28,8 @@ pub struct Compilation {
 /// Compile a G-code program into a per-job WIT description and a wasm module
 /// that calls host-provided builder functions in the same order as the input.
 pub fn compile_gcode(source: &str) -> Result<Compilation> {
-    compile_gcode_with_options(source, CompileOptions::default())
-}
-
-/// Compile G-code with custom options, including plugin schemas
-pub fn compile_gcode_with_options(source: &str, options: CompileOptions) -> Result<Compilation> {
     let statements = parse(source).context("failed to parse gcode")?;
-    let (verb_shapes, compiled_stmts) = infer_shapes(&statements, &options)?;
+    let (verb_shapes, compiled_stmts) = infer_shapes(&statements)?;
 
     let wit = build_wit(&verb_shapes)?;
     let module = build_wasm(&verb_shapes, &compiled_stmts)?;
@@ -123,10 +81,7 @@ struct CompiledStatement {
     params: Vec<(String, ParamLiteral)>,
 }
 
-fn infer_shapes(
-    statements: &[Statement],
-    options: &CompileOptions,
-) -> Result<(Vec<VerbShape>, Vec<CompiledStatement>)> {
+fn infer_shapes(statements: &[Statement]) -> Result<(Vec<VerbShape>, Vec<CompiledStatement>)> {
     let mut per_verb: HashMap<String, VerbShape> = HashMap::new();
     let mut compiled = Vec::new();
 
@@ -134,9 +89,6 @@ fn infer_shapes(
         let Some((verb, tail)) = split_verb(stmt) else {
             continue;
         };
-
-        // Check if we have a plugin schema for this command
-        let plugin_schema = options.plugin_schemas.get(&verb.raw);
 
         let verb_shape = per_verb
             .entry(verb.raw.clone())
@@ -153,12 +105,6 @@ fn infer_shapes(
             };
 
             let (kind, literal) = classify_value(value)?;
-
-            // Validate against plugin schema if available
-            if let Some(schema) = plugin_schema {
-                validate_param_against_schema(&name, &kind, schema)?;
-            }
-
             let shape = verb_shape
                 .params
                 .entry(name.clone())
@@ -167,23 +113,6 @@ fn infer_shapes(
                 });
             shape.kinds.insert(kind.clone());
             compiled_params.push((name, literal));
-        }
-
-        // Check for required parameters if we have a plugin schema
-        if let Some(schema) = plugin_schema {
-            let provided_params: BTreeSet<_> = compiled_params
-                .iter()
-                .map(|(name, _)| name.clone())
-                .collect();
-            for field in &schema.params {
-                if field.required && !provided_params.contains(&field.name) {
-                    bail!(
-                        "Command '{}' missing required parameter '{}'",
-                        verb.raw,
-                        field.name
-                    );
-                }
-            }
         }
 
         compiled.push(CompiledStatement {
@@ -195,57 +124,6 @@ fn infer_shapes(
     let mut verbs: Vec<_> = per_verb.into_values().collect();
     verbs.sort_by(|a, b| a.raw.cmp(&b.raw));
     Ok((verbs, compiled))
-}
-
-/// Validate a parameter against a plugin schema
-fn validate_param_against_schema(
-    param_name: &str,
-    param_kind: &ParamKind,
-    schema: &PluginCommandSchema,
-) -> Result<()> {
-    // Find the field in the schema
-    let field = schema
-        .params
-        .iter()
-        .find(|f| f.name == param_name)
-        .ok_or_else(|| {
-            anyhow!(
-                "Parameter '{}' not defined in schema for command '{}'",
-                param_name,
-                schema.command
-            )
-        })?;
-
-    // Check type compatibility - allow int where float is expected (common in G-code)
-    let expected = plugin_field_type_to_param_kind(&field.field_type);
-    let compatible = param_kind == &expected
-        || (matches!(field.field_type, PluginFieldType::Float)
-            && matches!(param_kind, ParamKind::Int));
-
-    if !compatible {
-        bail!(
-            "Parameter '{}' in command '{}' has type {:?} but schema expects {:?}",
-            param_name,
-            schema.command,
-            param_kind,
-            expected
-        );
-    }
-
-    Ok(())
-}
-
-/// Convert plugin field type to param kind for validation
-fn plugin_field_type_to_param_kind(field_type: &PluginFieldType) -> ParamKind {
-    match field_type {
-        PluginFieldType::Int => ParamKind::Int,
-        PluginFieldType::Float => ParamKind::Float,
-        PluginFieldType::String => ParamKind::String,
-        PluginFieldType::Bool => ParamKind::Int, // Bools map to int in G-code (0/1)
-        PluginFieldType::ListInt => ParamKind::ListInt,
-        PluginFieldType::ListFloat => ParamKind::ListFloat,
-        PluginFieldType::ListString => ParamKind::ListString,
-    }
 }
 
 fn split_verb(stmt: &Statement) -> Option<(NormalizedVerb, &[Word])> {
@@ -703,85 +581,5 @@ mod tests {
         let input = "G1.0 X1\n";
         let out = compile_gcode(input).expect("compile");
         assert!(out.wit.contains("interface g1-0"));
-    }
-
-    #[test]
-    fn validates_with_plugin_schema() {
-        let mut options = CompileOptions::default();
-
-        // Define a schema for G1 command
-        let g1_schema = PluginCommandSchema {
-            command: "G1".to_string(),
-            params: vec![
-                PluginFieldSchema {
-                    name: "X".to_string(),
-                    field_type: PluginFieldType::Float,
-                    required: false,
-                    description: Some("X coordinate".to_string()),
-                    default_value: None,
-                },
-                PluginFieldSchema {
-                    name: "Y".to_string(),
-                    field_type: PluginFieldType::Float,
-                    required: false,
-                    description: Some("Y coordinate".to_string()),
-                    default_value: None,
-                },
-            ],
-            description: Some("Linear move".to_string()),
-        };
-
-        options.plugin_schemas.insert("G1".to_string(), g1_schema);
-
-        // Valid G-code should compile
-        let input = "G1 X1.5 Y2.0\n";
-        let result = compile_gcode_with_options(input, options.clone());
-        assert!(result.is_ok());
-
-        // Invalid parameter type should fail
-        let input_bad = "G1 X\"string\"\n";
-        let result = compile_gcode_with_options(input_bad, options.clone());
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn validates_required_parameters() {
-        let mut options = CompileOptions::default();
-
-        // Define a schema with required parameter
-        let m104_schema = PluginCommandSchema {
-            command: "M104".to_string(),
-            params: vec![PluginFieldSchema {
-                name: "S".to_string(),
-                field_type: PluginFieldType::Float,
-                required: true,
-                description: Some("Target temperature".to_string()),
-                default_value: None,
-            }],
-            description: Some("Set hotend temperature".to_string()),
-        };
-
-        options
-            .plugin_schemas
-            .insert("M104".to_string(), m104_schema);
-
-        // Missing required parameter should fail
-        let input = "M104\n";
-        let result = compile_gcode_with_options(input, options.clone());
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("required parameter")
-        );
-
-        // With required parameter should succeed
-        let input = "M104 S200\n";
-        let result = compile_gcode_with_options(input, options);
-        if let Err(ref e) = result {
-            eprintln!("Error: {}", e);
-        }
-        assert!(result.is_ok());
     }
 }

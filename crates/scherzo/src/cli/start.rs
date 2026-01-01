@@ -1,7 +1,4 @@
-use crate::{
-    config::Config,
-    plugin::{PluginManager, PluginRegistry},
-};
+use crate::{config::Config, plugin::PluginManager};
 use anyhow::{Context, Result};
 use clap::Args;
 use std::path::PathBuf;
@@ -85,17 +82,14 @@ impl StartArgs {
 
         tracing::info!("Scherzo runtime initialized");
 
-        // Extract registry before moving plugin_manager
-        let registry = plugin_manager.registry().clone();
-
-        // Start the HTTP server with the plugin registry
-        start_server(config, registry)
+        // Start the HTTP server
+        start_server(config)
     }
 }
 
 /// Start the HTTP server
 #[tokio::main]
-async fn start_server(config: Config, plugin_registry: PluginRegistry) -> Result<()> {
+async fn start_server(config: Config) -> Result<()> {
     let addr = format!("{}:{}", config.server.host, config.server.port);
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
@@ -104,7 +98,7 @@ async fn start_server(config: Config, plugin_registry: PluginRegistry) -> Result
     tracing::info!("Server listening on {}", addr);
 
     // Create app state and router
-    let state = crate::server::AppState::new(config, plugin_registry)?;
+    let state = crate::server::AppState::new(config)?;
     let app = crate::server::create_router(state);
 
     // Run the server

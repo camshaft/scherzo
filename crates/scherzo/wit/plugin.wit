@@ -19,19 +19,19 @@ interface types {
     /// Field type for command parameters
     enum field-type {
         /// 64-bit signed integer
-        int,
+        integer,
         /// 64-bit floating point number
-        float,
+        floating,
         /// UTF-8 string
-        string,
+        text,
         /// Boolean value
-        bool,
+        boolean,
         /// List of integers
-        list-int,
+        list-integer,
         /// List of floats
-        list-float,
+        list-floating,
         /// List of strings
-        list-string,
+        list-text,
     }
 
     /// Field definition for a command parameter

@@ -14,6 +14,18 @@ use wasmtime::{
 };
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiView};
 
+// Generate WIT bindings using wasmtime's bindgen! macro
+wasmtime::component::bindgen!({
+    path: "wit",
+    world: "plugin",
+});
+
+// Re-export types from the generated bindings for the host side
+pub use scherzo::plugin::types::{
+    CommandHandler as WitCommandHandler, FieldDef as WitFieldDef, FieldType as WitFieldType,
+    Schema as WitSchema,
+};
+
 /// Plugin metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginInfo {
@@ -32,6 +44,15 @@ pub struct Schema {
     pub description: Option<String>,
 }
 
+impl From<WitSchema> for Schema {
+    fn from(schema: WitSchema) -> Self {
+        Self {
+            json_schema: schema.json_schema,
+            description: schema.description,
+        }
+    }
+}
+
 /// Field type for command parameters
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -45,6 +66,20 @@ pub enum FieldType {
     ListString,
 }
 
+impl From<WitFieldType> for FieldType {
+    fn from(ft: WitFieldType) -> Self {
+        match ft {
+            WitFieldType::Integer => FieldType::Int,
+            WitFieldType::Floating => FieldType::Float,
+            WitFieldType::Text => FieldType::String,
+            WitFieldType::Boolean => FieldType::Bool,
+            WitFieldType::ListInteger => FieldType::ListInt,
+            WitFieldType::ListFloating => FieldType::ListFloat,
+            WitFieldType::ListText => FieldType::ListString,
+        }
+    }
+}
+
 /// Field definition for a command parameter
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FieldDef {
@@ -55,6 +90,18 @@ pub struct FieldDef {
     pub default_value: Option<String>,
 }
 
+impl From<WitFieldDef> for FieldDef {
+    fn from(fd: WitFieldDef) -> Self {
+        Self {
+            name: fd.name,
+            field_type: fd.field_type.into(),
+            required: fd.required,
+            description: fd.description,
+            default_value: fd.default_value,
+        }
+    }
+}
+
 /// Handler for a G-code command or high-level command
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommandHandler {
@@ -62,6 +109,17 @@ pub struct CommandHandler {
     pub params: Vec<FieldDef>,
     pub description: Option<String>,
     pub scheduling_class: String,
+}
+
+impl From<WitCommandHandler> for CommandHandler {
+    fn from(ch: WitCommandHandler) -> Self {
+        Self {
+            command: ch.command,
+            params: ch.params.into_iter().map(Into::into).collect(),
+            description: ch.description,
+            scheduling_class: ch.scheduling_class,
+        }
+    }
 }
 
 /// Registry for plugin-provided schemas and handlers
