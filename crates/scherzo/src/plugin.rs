@@ -346,6 +346,49 @@ impl PluginRegistry {
     pub fn get_plugins(&self) -> HashMap<String, PluginInfo> {
         self.plugins.read().unwrap().clone()
     }
+
+    /// Validate configuration JSON against the merged schema
+    /// Returns Ok(()) if valid, or an error describing what's wrong
+    /// 
+    /// Note: This is a basic validation that checks if the JSON parses and
+    /// contains required fields. For full JSON Schema validation, consider
+    /// adding the `jsonschema` crate in the future.
+    pub fn validate_config(&self, config_json: &str) -> Result<()> {
+        // Parse the config JSON
+        let config_value: serde_json::Value = serde_json::from_str(config_json)
+            .context("Config is not valid JSON")?;
+        
+        // Get the merged schema
+        let merged_schema = self.get_merged_schema()?;
+        let schema_value: serde_json::Value = serde_json::from_str(&merged_schema.json_schema)
+            .context("Failed to parse merged schema")?;
+        
+        // Basic validation: check that config is an object
+        if !config_value.is_object() {
+            bail!("Config must be a JSON object");
+        }
+        
+        // Check required fields if specified in schema
+        if let Some(required) = schema_value.get("required").and_then(|r| r.as_array()) {
+            let config_obj = config_value.as_object().unwrap();
+            for req_field in required {
+                if let Some(field_name) = req_field.as_str() {
+                    if !config_obj.contains_key(field_name) {
+                        bail!("Required field '{}' is missing from config", field_name);
+                    }
+                }
+            }
+        }
+        
+        // TODO: Add more comprehensive validation:
+        // - Type checking for each field
+        // - Range validation for numbers
+        // - Pattern validation for strings
+        // - Array item validation
+        // Consider using the `jsonschema` crate for full JSON Schema validation
+        
+        Ok(())
+    }
 }
 
 /// State for plugin WASM instances
@@ -457,12 +500,13 @@ impl PluginManager {
             .with_context(|| format!("Failed to register config schema for plugin {}", info.id))?;
 
         // Validate config against the merged schema
-        // For now, we just pass through the config as-is
-        // In a full implementation, we'd validate against the merged JSON schema
-        let validated_config = config_json.to_string();
+        self.registry.validate_config(config_json)
+            .with_context(|| format!("Config validation failed for plugin {}", info.id))?;
+        
+        tracing::debug!("Config validated successfully for plugin {}", info.id);
 
         // Call init with validated config to get plugin instance resource
-        let _plugin_instance = lifecycle.call_init(&mut store, &validated_config)
+        let _plugin_instance = lifecycle.call_init(&mut store, config_json)
             .with_context(|| format!("Failed to initialize plugin {}", info.id))?
             .map_err(|e| anyhow::anyhow!("Plugin init failed: {}", e))?;
         
@@ -698,5 +742,91 @@ mod tests {
         let result = registry.register_config_schema("plugin1".to_string(), schema);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("already registered"));
+    }
+
+    #[test]
+    fn test_config_validation_valid() {
+        let registry = PluginRegistry::new();
+
+        // Register a schema with required fields
+        let schema = Schema {
+            json_schema: r#"{
+                "type": "object",
+                "properties": {
+                    "temp": {"type": "number"},
+                    "name": {"type": "string"}
+                },
+                "required": ["temp"]
+            }"#.to_string(),
+            description: Some("Test schema".to_string()),
+        };
+        registry.register_config_schema("plugin1".to_string(), schema).unwrap();
+
+        // Valid config with required field
+        let valid_config = r#"{"temp": 200, "name": "test"}"#;
+        assert!(registry.validate_config(valid_config).is_ok());
+
+        // Valid config with just required field
+        let valid_config2 = r#"{"temp": 180}"#;
+        assert!(registry.validate_config(valid_config2).is_ok());
+    }
+
+    #[test]
+    fn test_config_validation_missing_required() {
+        let registry = PluginRegistry::new();
+
+        // Register a schema with required fields
+        let schema = Schema {
+            json_schema: r#"{
+                "type": "object",
+                "properties": {
+                    "temp": {"type": "number"},
+                    "name": {"type": "string"}
+                },
+                "required": ["temp"]
+            }"#.to_string(),
+            description: Some("Test schema".to_string()),
+        };
+        registry.register_config_schema("plugin1".to_string(), schema).unwrap();
+
+        // Invalid config missing required field
+        let invalid_config = r#"{"name": "test"}"#;
+        let result = registry.validate_config(invalid_config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Required field 'temp' is missing"));
+    }
+
+    #[test]
+    fn test_config_validation_invalid_json() {
+        let registry = PluginRegistry::new();
+
+        let schema = Schema {
+            json_schema: r#"{"type": "object", "properties": {}}"#.to_string(),
+            description: Some("Test schema".to_string()),
+        };
+        registry.register_config_schema("plugin1".to_string(), schema).unwrap();
+
+        // Invalid JSON
+        let invalid_config = r#"{"temp": not valid json}"#;
+        let result = registry.validate_config(invalid_config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not valid JSON"));
+    }
+
+    #[test]
+    fn test_config_validation_not_object() {
+        let registry = PluginRegistry::new();
+
+        let schema = Schema {
+            json_schema: r#"{"type": "object", "properties": {}}"#.to_string(),
+            description: Some("Test schema".to_string()),
+        };
+        registry.register_config_schema("plugin1".to_string(), schema).unwrap();
+
+        // Config that's not an object
+        let invalid_config = r#"["array", "not", "object"]"#;
+        let result = registry.validate_config(invalid_config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("must be a JSON object"));
     }
 }
